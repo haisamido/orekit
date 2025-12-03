@@ -1,0 +1,111 @@
+# ---------------------------------------------------------------------------- #
+#                                    GLOBALS                                   #
+# ---------------------------------------------------------------------------- #
+ARG IMAGE_URI=maven:3.9.9-eclipse-temurin-17
+
+FROM ${IMAGE_URI}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG MAVEN_HTTPS_PROXY
+ARG HTTPS_PROXY
+ARG HTTP_PROXY
+ARG DEPLOYMENT_ENVIRO
+
+ENV MAVEN_HTTPS_PROXY=$MAVEN_HTTPS_PROXY
+ENV HTTPS_PROXY=$HTTPS_PROXY
+ENV HTTP_PROXY=$HTTP_PROXY
+ENV DEPLOYMENT_ENVIRO=${DEPLOYMENT_ENVIRO}
+
+#------------------------------------------------------------------------------
+# Git Configs
+#------------------------------------------------------------------------------
+ARG PROJECT_NAME
+ENV PROJECT_NAME=${PROJECT_NAME}
+
+ARG OREKIT_BASE_DIR
+ENV OREKIT_BASE_DIR=${OREKIT_BASE_DIR}
+
+ARG OREKIT_USER
+ARG OREKIT_GIT_URL
+ARG OREKIT_GIT_COMMIT
+
+ENV OREKIT_USER=${OREKIT_USER}
+ENV OREKIT_GIT_URL=${OREKIT_GIT_URL}
+ENV OREKIT_GIT_COMMIT=${OREKIT_GIT_COMMIT}
+
+ARG HIPPARCHUS_GIT_URL
+ARG HIPPARCHUS_GIT_COMMIT
+
+ENV HIPPARCHUS_GIT_URL=${HIPPARCHUS_GIT_URL}
+ENV HIPPARCHUS_GIT_COMMIT=${HIPPARCHUS_GIT_COMMIT}
+
+# Install git, curl, and sudo
+RUN apt -y update && apt -y install git curl sudo graphviz && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+RUN git config --global http.sslVerify false
+
+# ---------------------------------------------------------------------------- #
+#                              CREATE USER                                     #
+# ---------------------------------------------------------------------------- #
+# Create user with sudo capabilities
+RUN useradd -m -s /bin/bash ${OREKIT_USER} && \
+    echo "${OREKIT_USER} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# TODO: figure out how to do this without being root
+USER root
+
+# Set up environment for using Orekit
+ENV OREKIT_JAR=${OREKIT_BASE_DIR}/target/orekit-14.0-SNAPSHOT.jar
+ENV CLASSPATH=$OREKIT_JAR:$CLASSPATH
+
+# ---------------------------------------------------------------------------- #
+# BUILD OREKIT DEPENDENCIES                                                    #
+# ---------------------------------------------------------------------------- #
+WORKDIR /opt
+
+# Clone Hipparchus repository
+RUN git clone -b ${HIPPARCHUS_GIT_COMMIT} ${HIPPARCHUS_GIT_URL}
+
+# Set working directory for Hipparchus
+WORKDIR /opt/hipparchus
+
+# Build and install Hipparchus
+RUN mvn -T 4 install -DskipTests
+
+# ---------------------------------------------------------------------------- #
+# BUILD OREKIT                                                                 #
+# ---------------------------------------------------------------------------- #
+WORKDIR ${OREKIT_BASE_DIR}
+
+RUN git clone -b ${OREKIT_GIT_COMMIT} ${OREKIT_GIT_URL}
+
+# Set working directory for Orekit
+WORKDIR ${OREKIT_BASE_DIR}/orekit
+
+# Build Orekit package
+RUN mvn -T 4 install -DskipTests
+
+# ---------------------------------------------------------------------------- #
+# BUILD OREKIT DATA                                                            #
+# ---------------------------------------------------------------------------- #
+WORKDIR ${OREKIT_BASE_DIR}
+
+RUN git clone https://gitlab.orekit.org/orekit/orekit-data.git
+
+WORKDIR ${OREKIT_BASE_DIR}/orekit-data
+
+# Build Orekit package
+RUN mvn -T 4 package
+
+# Install extras
+RUN apt -y update && apt -y install tree tmux jq && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+# ---------------------------------------------------------------------------- #
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+CMD ["/entrypoint.sh"]
