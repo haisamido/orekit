@@ -57,8 +57,10 @@ RUN useradd -m -s /bin/bash ${OREKIT_USER} && \
 USER root
 
 # Set up environment for using Orekit
-ENV OREKIT_JAR=${OREKIT_BASE_DIR}/target/orekit-14.0-SNAPSHOT.jar
+ENV OREKIT_JAR=${OREKIT_BASE_DIR}/orekit/target/orekit-14.0-SNAPSHOT.jar
 ENV CLASSPATH=$OREKIT_JAR:$CLASSPATH
+
+# https://gitlab.orekit.org/-/project/35/uploads/11a611fe3bec207934ef4335ce977a80/orekit-tutorials-13.1.jar
 
 # ---------------------------------------------------------------------------- #
 # BUILD OREKIT DEPENDENCIES                                                    #
@@ -78,34 +80,52 @@ RUN mvn -T 4 install -DskipTests
 # BUILD OREKIT                                                                 #
 # ---------------------------------------------------------------------------- #
 WORKDIR ${OREKIT_BASE_DIR}
-
 RUN git clone -b ${OREKIT_GIT_COMMIT} ${OREKIT_GIT_URL}
 
 # Set working directory for Orekit
 WORKDIR ${OREKIT_BASE_DIR}/orekit
 
 # Build Orekit package
-RUN mvn -T 4 install -DskipTests
+RUN mvn -X -T 4 install -DskipTests
+
+# ---------------------------------------------------------------------------- #
+# BUILD OREKIT TUTORIALS                                                       #
+# ---------------------------------------------------------------------------- #
+WORKDIR ${OREKIT_BASE_DIR}
+RUN git clone https://gitlab.orekit.org/orekit/orekit-tutorials.git
+
+# Set working directory for Orekit tutorials
+WORKDIR ${OREKIT_BASE_DIR}/orekit-tutorials
+
+# Build Orekit tutorials
+# TODO: Enable this when needed BROKEN right now
+# RUN mvn -X -T 4 install
+# ---------------------------------------------------------------------------- #
 
 # ---------------------------------------------------------------------------- #
 # BUILD OREKIT DATA                                                            #
 # ---------------------------------------------------------------------------- #
 WORKDIR ${OREKIT_BASE_DIR}
-
 RUN git clone https://gitlab.orekit.org/orekit/orekit-data.git
 
 WORKDIR ${OREKIT_BASE_DIR}/orekit-data
+# TODO: many fails in downloads. looks like nasa paths are broken
+RUN ./update.sh
+# ---------------------------------------------------------------------------- #
 
-# Build Orekit package
-RUN mvn -T 4 package
-
-# Install extras
-RUN apt -y update && apt -y install tree tmux jq && \
+# ---------------------------------------------------------------------------- #
+# Install Extras.                                                              #
+# ---------------------------------------------------------------------------- #
+RUN apt -y update && apt -y install tree tmux jq less vim && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 # ---------------------------------------------------------------------------- #
 
+# ---------------------------------------------------------------------------- #
+# /entrypoint.sh.                                                              #
+# ---------------------------------------------------------------------------- #
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 CMD ["/entrypoint.sh"]
+# ---------------------------------------------------------------------------- #
